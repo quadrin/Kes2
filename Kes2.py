@@ -1,7 +1,5 @@
 import streamlit as st
 import streamlit_folium as folium
-from tkinter import Tk
-from tkinter import filedialog
 from rdkit import Chem, DataStructs
 from multiprocessing import Pool
 from rdkit.DataStructs import CreateFromBitString

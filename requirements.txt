@@ -1,0 +1,12 @@
+streamlit
+streamlit_folium
+rdkit
+Bio
+tmscoring
+uuid
+tmtools
+numpy
+pandas
+seaborn
+matplotlib
+iminuit

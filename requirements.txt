@@ -9,4 +9,3 @@ numpy
 pandas
 seaborn
 matplotlib
-prody

@@ -1,11 +1,12 @@
 import streamlit as st
 import streamlit_folium as folium
 from rdkit import Chem, DataStructs
-from multiprocessing import Pool
+from multiprocessing import Pool, cpu_count
 from rdkit.DataStructs import CreateFromBitString
 from rdkit.DataStructs import TanimotoSimilarity
 from rdkit.Chem import AllChem
-from Bio.PDB import PDBList
+from Bio.PDB import PDBList, PDBParser, Superimposer, PDBIO, Select
+from prody import parsePDB, calcTransformation, applyTransformation, calcRMSD
 from Bio.Data import IUPACData
 from tmscoring import TMscoring
 import uuid
@@ -16,7 +17,6 @@ import shutil
 import urllib.request
 import io
 from tmtools import tm_align
-from tmtools.io import get_structure
 from tmtools.io import get_residue_data as original_get_residue_data
 from io import StringIO
 import zipfile
@@ -28,7 +28,8 @@ import pandas as pd
 import os
 import base64
 import re
-
+from itertools import combinations
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 #~~~~~~~~~~~~~~~~~~~Molecular Similarity Calculator~~~~~~~~~~~~~~~~~~~
 def calculate_similarity_for_pair(args):
@@ -171,7 +172,7 @@ def page_molecular_similarity():
 
         return data
 
-    def calculate_similarity(file, save_location, selected_metrics):
+    def calculate_similarity(file, selected_metrics):
         data = load_data(file)
         if data is None:
             return
@@ -230,10 +231,8 @@ def page_molecular_similarity():
     if st.button('Deselect All Metrics'):  # Add this line
         selected_metrics = []
 
-    save_location = st.text_input('Save Location', '', key="MolecularSave")  # Add this line
-
     if st.button('Run', key='RunButtonMolecular'):
-        if file is not None and save_location:  # Check if save_location is not empty
+        if file is not None:  # Check if save_location is not empty
             # Create a BytesIO object
             zip_buffer = io.BytesIO()
 
@@ -244,22 +243,20 @@ def page_molecular_similarity():
 
             # Create download button
             st.download_button(
-            label="Download results",
-            data=zip_buffer.getvalue(),
-            file_name="results.zip",
-            mime="application/zip",
-            key="DownloadButtonMolecular"  # Add this line
-        )
+                label="Download results",
+                data=zip_buffer.getvalue(),
+                file_name="results.zip",
+                mime="application/zip"
+            )
         else:
-            st.error('Please upload a file and enter a save location or select an existing folder.')
+            st.error('Please upload a file.')
 
 #~~~~~~~~~~~~~~~~~~~Protein Similarity Calculator~~~~~~~~~~~~~~~~~~~
 
-def extract_pdb_id(file_path):
-    with open(file_path) as file:
-        for line in file:
-            if line.startswith("HEADER"):
-                return line.split()[-1]
+def extract_pdb_id(file):
+    for line in file:
+        if line.startswith("HEADER"):
+            return line.split()[-1]
     return None
 
 def get_residue_data(chain):
@@ -276,168 +273,149 @@ def get_residue_data(chain):
 counter = 0
 pdb_files = []
 
+selected_method = None
+
+class AlphaCarbonSelect(Select):
+    """Only accept alpha carbon atoms."""
+    def accept_atom(self, atom):
+        return atom.get_name() == "CA"
+
+parser = PDB.PDBParser()
+pdb_io = PDB.PDBIO()
+
+def process_pair_wrapper(args):
+    return process_pair(*args)
+
+def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
+    similarity = float('inf')  # Assign a default value to similarity
+    print(f"Processing pair: {pdb_file1}, {pdb_file2}")  # Print the pair being processed
+    try:
+        # Parse the protein structures
+        print("Parsing protein structures...")
+        structure1 = parser.get_structure('protein1', io.StringIO(pdb_file1))
+        structure2 = parser.get_structure('protein2', io.StringIO(pdb_file2))
+
+        # Preprocess the structures if use_simplified is True
+        if use_simplified:
+            print("Preprocessing structures...")
+            pdb_io = PDBIO()
+            pdb_io.set_structure(structure1)
+            pdb_io.save('structure1.pdb', AlphaCarbonSelect())
+            pdb_io.set_structure(structure2)
+            pdb_io.save('structure2.pdb', AlphaCarbonSelect())
+
+            # Reload the preprocessed structures
+            structure1 = parser.get_structure('protein1', 'structure1.pdb')
+            structure2 = parser.get_structure('protein2', 'structure2.pdb')
+
+        # Calculate similarity
+        print("Calculating similarity...")
+        if selected_method == 'TM-score':
+            # Use TM-align for TM-score calculation
+            print("Calculating TM-score...")
+            tm_score = tm_align(structure1, structure2)
+            similarity = tm_score
+
+        elif selected_method == 'RMSD':
+            # Use ProDy for RMSD calculation
+            print("Calculating RMSD...")
+            transformation, rmsd = calcTransformation(structure1, structure2)
+            similarity = rmsd
+
+        print(f"Calculated similarity: {similarity}")  # Print the calculated similarity
+    
+    except ValueError as e:
+        print(f"Error processing pair {pdb_file1}, {pdb_file2}: {str(e)}. Skipping this pair.")
+        return (pdb_file1, pdb_file2, -1)  # Return a default similarity score
+    
+    return (pdb_file1, pdb_file2, similarity)
+
 def page_protein_similarity():
-    global counter
+    global selected_method
+    
     st.title('Protein Similarity Calculator')
 
-    # Upload protein structure files
-    protein_csv = st.file_uploader('Upload Protein CSV File', type=['csv'], key='uploadProtein')
+    if st.button('Reset Session', key="resetSessionPtn"):
+        st.session_state.clear()
 
-    # Scoring methods
-    scoring_methods = ['TM-score', 'RMSD', 'Other method']  # Add other methods here...
+    if 'pdb_files' not in st.session_state:
+        st.session_state.pdb_files = []
+
+    protein_csv = st.file_uploader('Upload Protein CSV File', type=['csv'], key='uploadProtein')
+    scoring_methods = ['TM-score', 'RMSD']  # Add other methods here...
     selected_method = st.selectbox('Select Scoring Method', scoring_methods, key="SelectProtein")
 
-    # Add a text input for the save location
-    save_location = st.text_input('Save Location', '', key="ProteinUpload")  # Add this line
-
-    # Initialize zip_buffer and temp_dir outside of the if block
-    zip_buffer = io.BytesIO()
-    temp_dir = None
-
     if protein_csv is not None:
-        # Read the CSV file into a pandas DataFrame
-        # Read the CSV file into a pandas DataFrame
         df = pd.read_csv(protein_csv)
-
-        # Get the protein names and PDB IDs from the first row of the DataFrame
         proteins = df.columns[1:]  # Get the protein names
         proteins = [protein.strip() for protein in proteins]
         pdb_ids = df.iloc[0, 1:]  # Get the PDB IDs
-
-        # Create a mapping from protein names to PDB IDs
         protein_to_pdb = dict(zip(proteins, [pdb_id.upper() for pdb_id in pdb_ids]))
 
-        print(f"protein_to_pdb: {protein_to_pdb}")
-        print(f"proteins: {proteins}")
-
-        # Button for downloading the PDB files
-        if st.button('Download PDB Files', key='DownloadButtonProtein'):
+        if st.button('Load PDB Files', key='DownloadButtonProtein'):
             pdbl = PDBList()
-
-            # Create a unique directory
-            temp_dir = os.path.join(save_location, str(uuid.uuid4()))
-            os.makedirs(temp_dir, exist_ok=True)
-
-            # Initialize pdb_files in session state if it doesn't exist
-            if 'pdb_files' not in st.session_state:
-                st.session_state.pdb_files = []
-
             for pdb_id in pdb_ids:
                 try:
-                    pdb_file = pdbl.retrieve_pdb_file(pdb_id, pdir=temp_dir, file_format='pdb', overwrite=True)
-                    st.session_state.pdb_files.append(pdb_file)  # Add the name of the PDB file to the list
+                    pdb_file_path = pdbl.retrieve_pdb_file(pdb_id)
+                    with open(pdb_file_path, 'r') as f:
+                        pdb_file = f.read()
+                    st.session_state.pdb_files.append(pdb_file)  # Add the PDB file to the list
                 except Exception as e:  # Catch all exceptions
                     st.write(f"Error downloading PDB file for {pdb_id}: {str(e)}")
 
-    if 'run_clicked' not in st.session_state:
-        st.session_state.run_clicked = False
+    use_simplified = st.checkbox('Use simplified representation (alpha carbon atoms only)', value=False)
 
     if st.button('Run', key='RunButtonProtein'):
-        st.session_state.run_clicked = True
+        if protein_csv is not None: 
+            # Create a BytesIO object
+            zip_buffer = io.BytesIO()
 
-    if st.session_state.run_clicked and protein_csv is not None:
+            # Create a Zip file
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Parse protein structures and calculate similarity
+                print(f'Calculating protein similarity using {selected_method}...')
+                # Initialize an empty DataFrame to store the similarity scores
+                similarity_df = pd.DataFrame(index=proteins, columns=proteins)
 
-        # Create a BytesIO object
-        zip_buffer = io.BytesIO()
+                # Create a pool of worker processes
+                with Pool() as pool:
+                    pairs = [(pdb_file1, pdb_file2, use_simplified, selected_method) for pdb_file1, pdb_file2 in combinations(st.session_state.pdb_files, 2)]
+                    print("Starting multiprocessing...")
+                    results = pool.map(process_pair_wrapper, pairs)
+                
+                # Add your code to store the similarities in similarity_df
+                print("Storing results...")
+                for pdb_file1, pdb_file2, similarity in results:
+                    protein1 = extract_pdb_id(pdb_file1)
+                    protein2 = extract_pdb_id(pdb_file2)
+                    similarity_df.loc[protein1, protein2] = similarity
+                    similarity_df.loc[protein2, protein1] = similarity  # if the similarity is symmetric
 
-        # Create a Zip file
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Parse protein structures and calculate similarity
-            st.write(f'Calculating protein similarity using {selected_method}...')
-            # Initialize an empty DataFrame to store the similarity scores
-            similarity_df = pd.DataFrame(index=proteins, columns=proteins)
+                # Write the DataFrame to a CSV file in the zip file
+                csv_buffer = io.StringIO()
+                similarity_df.to_csv(csv_buffer)
+                zipf.writestr(f'similarity_scores/{selected_method}_similarity.csv', csv_buffer.getvalue())
 
-            # Iterate over the PDB files stored in session state
-            parser = PDB.PDBParser(QUIET=True)
-            for pdb_file1 in st.session_state.pdb_files:
-                try:
-                    structure1 = parser.get_structure('protein2', pdb_file1)
-                    chain1 = next(structure1.get_chains())
-                    coords1, seq1 = get_residue_data(chain1)
+                # Generate a heatmap
+                print("Generating heatmap...")
+                plt.figure(figsize=(10, 8))
+                sns.heatmap(similarity_df.astype(float), cmap='viridis')
 
-                    pdb_id1 = extract_pdb_id(pdb_file1).upper()
-                except KeyError:
-                    st.write(f"Skipping {pdb_file1} due to non-standard residue")
+                # Write the heatmap to a PNG file in the zip file
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png')
+                plt.close()
+                zipf.writestr(f'heatmaps/{selected_method}_heatmap.png', img_buffer.getvalue())
 
-                for pdb_file2 in st.session_state.pdb_files:
-                    try:
-                        structure2 = parser.get_structure('protein2', pdb_file2)
-                        chain2 = next(structure2.get_chains())
-                        coords2, seq2 = get_residue_data(chain2)
-
-                        pdb_id2 = extract_pdb_id(pdb_file2).upper()
-                    except KeyError:
-                        st.write(f"Skipping {pdb_file2} due to non-standard residue")
-
-                    # Get the protein names from the protein_to_pdb dictionary
-                    try:
-                        # Extract protein names directly from the file paths
-                        protein1 = [protein for protein, pdb_id in protein_to_pdb.items() if pdb_id == pdb_id1][0]
-                        protein2 = [protein for protein, pdb_id in protein_to_pdb.items() if pdb_id == pdb_id2][0]
-
-                        if protein1 is None or protein2 is None:
-                            raise ValueError(f"Protein names not found for files: {pdb_file1}, {pdb_file2}")
-
-                    except ValueError as e:
-                        print(str(e))
-                        continue
-                    
-                    if proteins.index(protein1) <= proteins.index(protein2):
-                            try:
-                                if selected_method == 'TM-score':
-                                    res = tm_align(coords1, coords2, seq1, seq2)
-                                    score = res.tm_norm_chain1
-                                elif selected_method == 'RMSD':
-                                    res = tm_align(coords1, coords2, seq1, seq2)
-                                    score = np.linalg.norm(coords1 - np.dot(coords2, res.u.T) - res.t, axis=1).mean()
-                                else:
-                                    # Implement other scoring methods here...
-                                    pass
-                            except Exception as e:
-                                print(f"Error calculating score for {protein1} and {protein2}: {e}")
-                                score = np.nan  # Use NaN as the score if an error occurs
-
-
-                            # Store the score in the DataFrame
-                            similarity_df.loc[protein1, protein2] = score
-                            similarity_df.loc[protein2, protein1] = score
-
-                            print(f"Protein1: {protein1}, PDB ID1: {pdb_id1}")
-                            print(f"Protein2: {protein2}, PDB ID2: {pdb_id2}")
-                            print(f"Score: {score}")
-                            print(similarity_df)
-
-        print(f"Size of zip_buffer: {zip_buffer.tell()}")
-
-        # Write the DataFrame to a CSV file in the zip file
-        csv_buffer = io.StringIO()
-        similarity_df.to_csv(csv_buffer)
-        zipf.writestr(f'similarity_scores/{selected_method}_similarity.csv', csv_buffer.getvalue())
-
-        # Generate a heatmap
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(similarity_df.astype(float), cmap='viridis')
-
-        # Write the heatmap to a PNG file in the zip file
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png')
-        plt.close()
-        zipf.writestr(f'heatmaps/{selected_method}_heatmap.png', img_buffer.getvalue())
-
-    # Delete the temporary directory and all its contents if it's not None
-    if temp_dir is not None:
-        shutil.rmtree(temp_dir)
-
-    # Create download button with a unique key for each function call
-    st.download_button(
-        label="Download results",
-        data=zip_buffer.getvalue(),
-        file_name="results.zip",
-        mime="application/zip",
-        key=f"DownloadButtonProtein_{counter}"  # Append the counter to the key
-    )
-
-    counter += 1  # Increment the counter
+            # Create download button
+            st.download_button(
+                label="Download results",
+                data=zip_buffer.getvalue(),
+                file_name="results.zip",
+                mime="application/zip"
+            )
+        else:
+            st.error('Please upload a file.')
 #~~~~~~~~~~~~~~~~~~~Page Menu~~~~~~~~~~~~~~~~~~~
 
 # Define the pages

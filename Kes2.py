@@ -380,8 +380,11 @@ def page_protein_similarity():
                 with Pool() as pool:
                     pairs = [(pdb_file1, pdb_file2, use_simplified, selected_method) for pdb_file1, pdb_file2 in combinations(st.session_state.pdb_files, 2)]
                     print("Starting multiprocessing...")
-                    results = pool.map(process_pair_wrapper, pairs)
-                
+                    try:
+                        results = pool.map(process_pair_wrapper, pairs)
+                    except Exception as e:
+                        print(f"Error during multiprocessing: {str(e)}")
+                                    
                 # Add your code to store the similarities in similarity_df
                 print("Storing results...")
                 for pdb_file1, pdb_file2, similarity in results:

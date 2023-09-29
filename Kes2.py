@@ -6,7 +6,6 @@ from rdkit.DataStructs import CreateFromBitString
 from rdkit.DataStructs import TanimotoSimilarity
 from rdkit.Chem import AllChem
 from Bio.PDB import PDBList, PDBParser, Superimposer, PDBIO, Select
-from prody import parsePDB, calcTransformation, applyTransformation, calcRMSD
 from Bio.Data import IUPACData
 from tmscoring import TMscoring
 import uuid

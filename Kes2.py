@@ -43,7 +43,7 @@ def normalize(values):
     min_value = min(values)
     max_value = max(values)
     normalized_values = [(value - min_value) / (max_value - min_value) for value in values]
-    return normalized_values
+    return np.array(normalized_values)  # Convert the list to a numpy array
 
 def calculate_braun_blanquet_similarity(x, y, z):
     return x / max(y, z)

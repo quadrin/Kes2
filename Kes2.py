@@ -32,7 +32,8 @@ def calculate_similarity_for_pair(args):
         fp1 = CreateFromBitString(fingerprints[i])
         fp2 = CreateFromBitString(fingerprints[j])
         if metric == "Tanimoto":
-            return TanimotoSimilarity(fp1, fp2)
+            if fp1 is not None and fp2 is not None:
+                return TanimotoSimilarity(fp1, fp2)
         else:
             x = fp1.GetNumOnBits()
             y = fp2.GetNumOnBits()
@@ -42,7 +43,7 @@ def calculate_similarity_for_pair(args):
 def normalize(values):
     min_value = min(values)
     max_value = max(values)
-    normalized_values = [(value - min_value) / (max_value - min_value) for value in values]
+    normalized_values = [(max_value - value) / (max_value - min_value) for value in values]
     return np.array(normalized_values)  # Convert the list to a numpy array
 
 def calculate_braun_blanquet_similarity(x, y, z):
@@ -227,8 +228,13 @@ def page_molecular_similarity():
     file = st.file_uploader('Upload File', type=['csv'], key='uploadMolecular')
     selected_metrics = st.multiselect('Select Metrics', metrics)
 
+    if 'selected_metrics' not in st.session_state:
+        st.session_state.selected_metrics = []
+
     if st.button('Select All Metrics'):
-        selected_metrics = metrics
+        st.session_state.selected_metrics = metrics
+
+    selected_metrics = st.session_state.selected_metrics
 
     if st.button('Deselect All Metrics'):  # Add this line
         selected_metrics = []

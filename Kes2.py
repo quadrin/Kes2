@@ -18,6 +18,7 @@ from multiprocessing import Pool
 from itertools import combinations
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
 import warnings
+import numpy as np
 from rdkit.Chem import AllChem
 
 # Ignore BioPython PDBConstructionWarning

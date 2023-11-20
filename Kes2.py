@@ -43,7 +43,7 @@ def calculate_similarity_for_pair(args):
 def normalize(values):
     min_value = min(values)
     max_value = max(values)
-    normalized_values = [(max_value - value) / (max_value - min_value) for value in values]
+    normalized_values = [(max_value - value) / (max_value - min_value) if value != 1.0 else 1.0 for value in values]
     return np.array(normalized_values)  # Convert the list to a numpy array
 
 def calculate_braun_blanquet_similarity(x, y, z):

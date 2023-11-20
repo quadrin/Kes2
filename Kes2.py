@@ -233,8 +233,7 @@ def page_molecular_similarity():
 
     if st.button('Select All Metrics'):
         st.session_state.selected_metrics = metrics
-
-    selected_metrics = st.session_state.selected_metrics
+        selected_metrics = st.session_state.selected_metrics
 
     if st.button('Deselect All Metrics'):  # Add this line
         selected_metrics = []

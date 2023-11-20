@@ -1,35 +1,27 @@
 import streamlit as st
-import streamlit_folium as folium
-from rdkit import Chem, DataStructs
-from multiprocessing import Pool, cpu_count
-from rdkit.DataStructs import CreateFromBitString
-from rdkit.DataStructs import TanimotoSimilarity
-from rdkit.Chem import AllChem
-from Bio.PDB import PDBList, PDBParser, Superimposer, PDBIO, Select
-from Bio.Data import IUPACData
-from tmscoring import TMscoring
-import uuid
-#^ will need pip install iminuit, pip install Bio
-from Bio import PDB
-from Bio.SeqUtils import seq3, seq1
-import shutil
-import urllib.request
 import io
-from tmtools import tm_align
-from tmtools.io import get_residue_data as original_get_residue_data
-from io import StringIO
+import os
+import uuid
 import zipfile
-import numpy as np
+import itertools
+import concurrent.futures
+import multiprocessing
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-import pandas as pd
-import os
-import base64
-import re
+from rdkit import Chem, DataStructs
+from rdkit.DataStructs import CreateFromBitString, TanimotoSimilarity
+from Bio.PDB import PDBList, MMCIFParser, PDBIO, Select, PDBParser
+from Bio import PDB
+from tmtools import tm_align
+from multiprocessing import Pool
 from itertools import combinations
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from Bio.PDB.PDBExceptions import PDBConstructionWarning
+import warnings
+from rdkit.Chem import AllChem
 
+# Ignore BioPython PDBConstructionWarning
+warnings.simplefilter('ignore', PDBConstructionWarning)
 #~~~~~~~~~~~~~~~~~~~Molecular Similarity Calculator~~~~~~~~~~~~~~~~~~~
 def calculate_similarity_for_pair(args):
     i, j, fingerprints, similarity_function, metric = args
@@ -45,6 +37,12 @@ def calculate_similarity_for_pair(args):
             y = fp2.GetNumOnBits()
             z = len(set(fp1.GetOnBits()) & set(fp2.GetOnBits()))
             return similarity_function(z, x, y)
+
+def normalize(values):
+    min_value = min(values)
+    max_value = max(values)
+    normalized_values = [(value - min_value) / (max_value - min_value) for value in values]
+    return normalized_values
 
 def calculate_braun_blanquet_similarity(x, y, z):
     return x / max(y, z)
@@ -171,7 +169,7 @@ def page_molecular_similarity():
 
         return data
 
-    def calculate_similarity(file, selected_metrics):
+    def calculate_similarity(file, zipf, selected_metrics):
         data = load_data(file)
         if data is None:
             return
@@ -198,8 +196,12 @@ def page_molecular_similarity():
             similarity_matrix = pool.map(calculate_similarity_for_pair, args)
             similarity_matrix = np.array(similarity_matrix).reshape(num_compounds, num_compounds)
 
+             # Normalize the similarity matrix
+            similarity_matrix = normalize(similarity_matrix.flatten()).reshape(num_compounds, num_compounds)
+
             # Convert the matrix to a pandas DataFrame
             similarity_df = pd.DataFrame(similarity_matrix, index=compound_ids, columns=compound_ids)
+            print(similarity_df)
             # Write the DataFrame to a CSV file in the zip file
             csv_buffer = io.StringIO()
             similarity_df.to_csv(csv_buffer)
@@ -252,6 +254,8 @@ def page_molecular_similarity():
 
 #~~~~~~~~~~~~~~~~~~~Protein Similarity Calculator~~~~~~~~~~~~~~~~~~~
 
+progress_bar = st.progress(0)
+
 def extract_pdb_id(file):
     for line in file:
         if line.startswith("HEADER"):
@@ -279,8 +283,26 @@ class AlphaCarbonSelect(Select):
     def accept_atom(self, atom):
         return atom.get_name() == "CA"
 
-parser = PDB.PDBParser()
+parser = PDB.MMCIFParser()
 pdb_io = PDB.PDBIO()
+
+def get_tm_score(pdb_file1, pdb_file2):
+    # Parse the protein structures
+    structure1 = PDBParser().get_structure('protein1', pdb_file1)
+    structure2 = PDBParser().get_structure('protein2', pdb_file2)
+
+    # Extract the alpha carbon atoms from the Structure objects
+    builder = CaPPBuilder()
+    for chain1 in structure1.get_chains():
+        for chain2 in structure2.get_chains():
+            coords1, seq1 = get_residue_data(chain1)
+            coords2, seq2 = get_residue_data(chain2)
+
+            # Calculate the TM-score
+            res = tm_align(coords1, coords2, seq1, seq2)
+            tm_score = res.tm_norm_chain1  # or res.tm_norm_chain2 depending on which normalization you want
+
+    return tm_score
 
 def process_pair_wrapper(args):
     return process_pair(*args)
@@ -297,29 +319,65 @@ def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
         # Preprocess the structures if use_simplified is True
         if use_simplified:
             print("Preprocessing structures...")
-            pdb_io = PDBIO()
-            pdb_io.set_structure(structure1)
-            pdb_io.save('structure1.pdb', AlphaCarbonSelect())
-            pdb_io.set_structure(structure2)
-            pdb_io.save('structure2.pdb', AlphaCarbonSelect())
+            try:
+                # Generate unique filenames
+                file1_name = f'structure1_{uuid.uuid4()}.cif'
+                file2_name = f'structure2_{uuid.uuid4()}.cif'
 
-            # Reload the preprocessed structures
-            structure1 = parser.get_structure('protein1', 'structure1.pdb')
-            structure2 = parser.get_structure('protein2', 'structure2.pdb')
+                pdb_io = PDBIO()
+                pdb_io.set_structure(structure1)
+                pdb_io.save(file1_name, AlphaCarbonSelect())
+                pdb_io.set_structure(structure2)
+                pdb_io.save(file2_name, AlphaCarbonSelect())
+
+                # Reload the preprocessed structures
+                structure1 = parser.get_structure('protein1', file1_name)
+                structure2 = parser.get_structure('protein2', file2_name)
+            except Exception as e:
+                print(f"Error during preprocessing: {e}")
+            finally:
+                # Clean up the files
+                if os.path.exists(file1_name):
+                    os.remove(file1_name)
+                if os.path.exists(file2_name):
+                    os.remove(file2_name)
 
         # Calculate similarity
         print("Calculating similarity...")
         if selected_method == 'TM-score':
-            # Use TM-align for TM-score calculation
-            print("Calculating TM-score...")
-            tm_score = tm_align(structure1, structure2)
-            similarity = tm_score
+                 # Use TM-align for TM-score calculation
+                print("Calculating TM-score...")
+                # Parse the protein structures
+                structure1 = PDBParser().get_structure('protein1', pdb_file1)
+                structure2 = PDBParser().get_structure('protein2', pdb_file2)
+                # Extract the alpha carbon atoms from the Structure objects
+                builder = CaPPBuilder()
+                tm_scores = []
+                for chain1 in structure1.get_chains():
+                    for chain2 in structure2.get_chains():
+                        ca_list1 = [res["CA"] for res in chain1.get_residues() if res.has_id("CA")]
+                        ca_list2 = [res["CA"] for res in chain2.get_residues() if res.has_id("CA")]
+                        # Check if both lists are not empty
+                        if ca_list1 and ca_list2:
+                            # Align the chains
+                            super_imposer = Superimposer()
+                            super_imposer.set_atoms(ca_list1, ca_list2)
+                            super_imposer.apply(chain2.get_atoms())
+                            # Calculate the TM-score
+                            tm_score = get_tm_score(ca_list1, ca_list2)
+                            tm_scores.append(tm_score)
+                # Calculate the average TM-score
+                similarity = sum(tm_scores) / len(tm_scores)
+                progress = (i + 1) / len(pairs)
+                progress_bar.progress(progress)
 
         elif selected_method == 'RMSD':
             # Use ProDy for RMSD calculation
             print("Calculating RMSD...")
             transformation, rmsd = calcTransformation(structure1, structure2)
             similarity = rmsd
+            progress = (i + 1) / len(pairs)
+            progress_bar.progress(progress)
 
         print(f"Calculated similarity: {similarity}")  # Print the calculated similarity
     
@@ -364,6 +422,11 @@ def page_protein_similarity():
 
     use_simplified = st.checkbox('Use simplified representation (alpha carbon atoms only)', value=False)
 
+    if st.button('View PDB Files'):
+        for i, pdb_file in enumerate(st.session_state.pdb_files):
+            st.subheader(f'PDB File {i+1}')
+            st.text(pdb_file)
+
     if st.button('Run', key='RunButtonProtein'):
         if protein_csv is not None: 
             # Create a BytesIO object
@@ -380,6 +443,7 @@ def page_protein_similarity():
                 with Pool() as pool:
                     pairs = [(pdb_file1, pdb_file2, use_simplified, selected_method) for pdb_file1, pdb_file2 in combinations(st.session_state.pdb_files, 2)]
                     print("Starting multiprocessing...")
+                    results = []
                     try:
                         results = pool.map(process_pair_wrapper, pairs)
                     except Exception as e:

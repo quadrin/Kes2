@@ -229,14 +229,15 @@ def page_molecular_similarity():
     selected_metrics = st.multiselect('Select Metrics', metrics)
 
     if 'selected_metrics' not in st.session_state:
-        st.session_state.selected_metrics = []
+     st.session_state.selected_metrics = []
+
+    selected_metrics = st.multiselect('Select Metrics', metrics, key='selected_metrics')
 
     if st.button('Select All Metrics'):
         st.session_state.selected_metrics = metrics
-        selected_metrics = st.session_state.selected_metrics
 
-    if st.button('Deselect All Metrics'):  # Add this line
-        selected_metrics = []
+    if st.button('Deselect All Metrics'):
+        st.session_state.selected_metrics = []
 
     if st.button('Run', key='RunButtonMolecular'):
         if file is not None:  # Check if save_location is not empty

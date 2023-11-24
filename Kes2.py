@@ -326,9 +326,11 @@ def get_tm_score(pdb_file1, pdb_file2):
     return tm_score
 
 def process_pair_wrapper(args):
+    st.text("hi, i'm process pair wrapper! I was called")
     return process_pair(*args)
 
 def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
+    st.text("hi, i'm process pair! I was called")
     similarity = float('inf')  # Assign a default value to similarity
     st.text(f"Processing pair: {pdb_file1}, {pdb_file2}")  # Print the pair being processed
     try:

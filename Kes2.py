@@ -317,16 +317,16 @@ def process_pair_wrapper(args):
 
 def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
     similarity = float('inf')  # Assign a default value to similarity
-    print(f"Processing pair: {pdb_file1}, {pdb_file2}")  # Print the pair being processed
+    st.write(f"Processing pair: {pdb_file1}, {pdb_file2}")  # Print the pair being processed
     try:
         # Parse the protein structures
-        print("Parsing protein structures...")
+        st.write("Parsing protein structures...")
         structure1 = parser.get_structure('protein1', io.StringIO(pdb_file1))
         structure2 = parser.get_structure('protein2', io.StringIO(pdb_file2))
 
         # Preprocess the structures if use_simplified is True
         if use_simplified:
-            print("Preprocessing structures...")
+            st.write("Preprocessing structures...")
             try:
                 # Generate unique filenames
                 file1_name = f'structure1_{uuid.uuid4()}.cif'
@@ -342,7 +342,7 @@ def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
                 structure1 = parser.get_structure('protein1', file1_name)
                 structure2 = parser.get_structure('protein2', file2_name)
             except Exception as e:
-                print(f"Error during preprocessing: {e}")
+                st.write(f"Error during preprocessing: {e}")
             finally:
                 # Clean up the files
                 if os.path.exists(file1_name):
@@ -351,10 +351,10 @@ def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
                     os.remove(file2_name)
 
         # Calculate similarity
-        print("Calculating similarity...")
+        st.write("Calculating similarity...")
         if selected_method == 'TM-score':
                  # Use TM-align for TM-score calculation
-                print("Calculating TM-score...")
+                st.write("Calculating TM-score...")
                 # Parse the protein structures
                 structure1 = PDBParser().get_structure('protein1', pdb_file1)
                 structure2 = PDBParser().get_structure('protein2', pdb_file2)
@@ -381,16 +381,16 @@ def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
 
         elif selected_method == 'RMSD':
             # Use ProDy for RMSD calculation
-            print("Calculating RMSD...")
+            st.write("Calculating RMSD...")
             transformation, rmsd = calcTransformation(structure1, structure2)
             similarity = rmsd
             progress = (i + 1) / len(pairs)
             progress_bar.progress(progress)
 
-        print(f"Calculated similarity: {similarity}")  # Print the calculated similarity
+        st.write(f"Calculated similarity: {similarity}")  # Print the calculated similarity
     
     except ValueError as e:
-        print(f"Error processing pair {pdb_file1}, {pdb_file2}: {str(e)}. Skipping this pair.")
+        st.write(f"Error processing pair {pdb_file1}, {pdb_file2}: {str(e)}. Skipping this pair.")
         return (pdb_file1, pdb_file2, -1)  # Return a default similarity score
     
     return (pdb_file1, pdb_file2, similarity)

@@ -174,6 +174,7 @@ def page_molecular_similarity():
         return data
 
     def calculate_similarity(file, zipf, selected_metrics):
+        st.write('Starting calculate_similarity_for_pair with args:', args)
         data = load_data(file)
         if data is None:
             return

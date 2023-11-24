@@ -239,11 +239,12 @@ def page_molecular_similarity():
     if st.button('Reset Session', key="resetSession"):
         st.session_state.clear()
 
-    file = st.file_uploader('Upload File', type=['csv'], key='uploadMolecular')
-    selected_metrics = st.multiselect('Select Metrics', metrics)
-
+    # Initialize selected_metrics in session state if it's not already there
     if 'selected_metrics' not in st.session_state:
         st.session_state.selected_metrics = []
+
+    file = st.file_uploader('Upload File', type=['csv'], key='uploadMolecular')
+    selected_metrics = st.multiselect('Select Metrics', metrics)
 
     if st.button('Select All Metrics'):
         st.session_state.selected_metrics = metrics
@@ -251,7 +252,8 @@ def page_molecular_similarity():
     selected_metrics = st.session_state.selected_metrics
 
     if st.button('Deselect All Metrics'):  # Add this line
-        selected_metrics = []
+        st.session_state.selected_metrics = []  # Clear selected_metrics in session state
+        selected_metrics = []  # Clear local selected_metrics variable
 
     if st.button('Run', key='RunButtonMolecular'):
         if file is not None:  # Check if save_location is not empty

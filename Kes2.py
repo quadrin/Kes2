@@ -458,10 +458,15 @@ def page_protein_similarity():
                         print(f"Error during multiprocessing: {str(e)}")
                                     
                 # Add your code to store the similarities in similarity_df
-                print("Storing results...")
+                st.text("Storing results...")
                 for pdb_file1, pdb_file2, similarity in results:
                     protein1 = extract_pdb_id(pdb_file1)
                     protein2 = extract_pdb_id(pdb_file2)
+                    st.text(f"pdb_file1: {pdb_file1}")  # Debugging print statement
+                    st.text(f"pdb_file2: {pdb_file2}")  # Debugging print statement
+                    st.text(f"similarity: {similarity}")  # Debugging print statement
+                    st.text(f"protein1: {protein1}")  # Debugging print statement
+                    st.text(f"protein2: {protein2}")  # Debugging print statement
                     similarity_df.loc[protein1, protein2] = similarity
                     similarity_df.loc[protein2, protein1] = similarity  # if the similarity is symmetric
 

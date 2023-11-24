@@ -468,7 +468,7 @@ def page_protein_similarity():
                     st.text("Starting multiprocessing...")
                     results = []
                     try:
-                        results = pool.map(process_pair_wrapper, pairs)
+                        results = pool.imap(process_pair_wrapper, pairs)
                     except Exception as e:
                         print(f"Error during multiprocessing: {str(e)}")
                                     

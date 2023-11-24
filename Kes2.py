@@ -21,6 +21,7 @@ import warnings
 import numpy as np
 from rdkit.Chem import AllChem
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import pickle
 
 # Ignore BioPython PDBConstructionWarning
 warnings.simplefilter('ignore', PDBConstructionWarning)

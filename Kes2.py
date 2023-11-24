@@ -21,7 +21,6 @@ import warnings
 import numpy as np
 from rdkit.Chem import AllChem
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import pickle
 
 # Ignore BioPython PDBConstructionWarning
 warnings.simplefilter('ignore', PDBConstructionWarning)
@@ -175,7 +174,7 @@ def page_molecular_similarity():
         return data
 
     def calculate_similarity(file, zipf, selected_metrics):
-        st.write('Starting calculate_similarity_for_pair with args:', args)
+        st.text('Starting calculate_similarity_for_pair with args:', args)
         data = load_data(file)
         if data is None:
             return
@@ -222,9 +221,9 @@ def page_molecular_similarity():
                     try:
                         data = future.result()
                     except Exception as exc:
-                        st.write('%r generated an exception: %s' % (arg, exc))
+                        st.text('%r generated an exception: %s' % (arg, exc))
                     else:
-                        st.write('%r page is %d bytes' % (arg, len(data)))
+                        st.text('%r page is %d bytes' % (arg, len(data)))
 
     def download_link(object_to_download, download_filename, download_link_text):
         if isinstance(object_to_download,pd.DataFrame):
@@ -331,16 +330,16 @@ def process_pair_wrapper(args):
 
 def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
     similarity = float('inf')  # Assign a default value to similarity
-    st.write(f"Processing pair: {pdb_file1}, {pdb_file2}")  # Print the pair being processed
+    st.text(f"Processing pair: {pdb_file1}, {pdb_file2}")  # Print the pair being processed
     try:
         # Parse the protein structures
-        st.write("Parsing protein structures...")
+        st.text("Parsing protein structures...")
         structure1 = parser.get_structure('protein1', io.StringIO(pdb_file1))
         structure2 = parser.get_structure('protein2', io.StringIO(pdb_file2))
 
         # Preprocess the structures if use_simplified is True
         if use_simplified:
-            st.write("Preprocessing structures...")
+            st.text("Preprocessing structures...")
             try:
                 # Generate unique filenames
                 file1_name = f'structure1_{uuid.uuid4()}.cif'
@@ -356,7 +355,7 @@ def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
                 structure1 = parser.get_structure('protein1', file1_name)
                 structure2 = parser.get_structure('protein2', file2_name)
             except Exception as e:
-                st.write(f"Error during preprocessing: {e}")
+                st.text(f"Error during preprocessing: {e}")
             finally:
                 # Clean up the files
                 if os.path.exists(file1_name):
@@ -365,10 +364,10 @@ def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
                     os.remove(file2_name)
 
         # Calculate similarity
-        st.write("Calculating similarity...")
+        st.text("Calculating similarity...")
         if selected_method == 'TM-score':
                  # Use TM-align for TM-score calculation
-                st.write("Calculating TM-score...")
+                st.text("Calculating TM-score...")
                 # Parse the protein structures
                 structure1 = PDBParser().get_structure('protein1', pdb_file1)
                 structure2 = PDBParser().get_structure('protein2', pdb_file2)
@@ -395,16 +394,16 @@ def process_pair(pdb_file1, pdb_file2, use_simplified, selected_method):
 
         elif selected_method == 'RMSD':
             # Use ProDy for RMSD calculation
-            st.write("Calculating RMSD...")
+            st.text("Calculating RMSD...")
             transformation, rmsd = calcTransformation(structure1, structure2)
             similarity = rmsd
             progress = (i + 1) / len(pairs)
             progress_bar.progress(progress)
 
-        st.write(f"Calculated similarity: {similarity}")  # Print the calculated similarity
+        st.text(f"Calculated similarity: {similarity}")  # Print the calculated similarity
     
     except ValueError as e:
-        st.write(f"Error processing pair {pdb_file1}, {pdb_file2}: {str(e)}. Skipping this pair.")
+        st.text(f"Error processing pair {pdb_file1}, {pdb_file2}: {str(e)}. Skipping this pair.")
         return (pdb_file1, pdb_file2, -1)  # Return a default similarity score
     
     return (pdb_file1, pdb_file2, similarity)
@@ -440,7 +439,7 @@ def page_protein_similarity():
                         pdb_file = f.read()
                     st.session_state.pdb_files.append(pdb_file)  # Add the PDB file to the list
                 except Exception as e:  # Catch all exceptions
-                    st.write(f"Error downloading PDB file for {pdb_id}: {str(e)}")
+                    st.text(f"Error downloading PDB file for {pdb_id}: {str(e)}")
 
     use_simplified = st.checkbox('Use simplified representation (alpha carbon atoms only)', value=False)
 
@@ -457,14 +456,14 @@ def page_protein_similarity():
             # Create a Zip file
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 # Parse protein structures and calculate similarity
-                print(f'Calculating protein similarity using {selected_method}...')
+                st.text(f'Calculating protein similarity using {selected_method}...')
                 # Initialize an empty DataFrame to store the similarity scores
                 similarity_df = pd.DataFrame(index=proteins, columns=proteins)
 
                 # Create a pool of worker processes
                 with Pool() as pool:
                     pairs = [(pdb_file1, pdb_file2, use_simplified, selected_method) for pdb_file1, pdb_file2 in combinations(st.session_state.pdb_files, 2)]
-                    print("Starting multiprocessing...")
+                    st.text("Starting multiprocessing...")
                     results = []
                     try:
                         results = pool.map(process_pair_wrapper, pairs)

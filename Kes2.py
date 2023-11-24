@@ -20,6 +20,7 @@ from Bio.PDB.PDBExceptions import PDBConstructionWarning
 import warnings
 import numpy as np
 from rdkit.Chem import AllChem
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Ignore BioPython PDBConstructionWarning
 warnings.simplefilter('ignore', PDBConstructionWarning)
@@ -211,6 +212,17 @@ def page_molecular_similarity():
             zipf.writestr(f'similarity_scores/{metric}_similarity.csv', csv_buffer.getvalue())
 
             print(f"Done with {metric}!")
+
+            with ProcessPoolExecutor() as executor:
+                futures = {executor.submit(calculate_similarity_for_pair, arg): arg for arg in args}
+                for future in as_completed(futures):
+                    arg = futures[future]
+                    try:
+                        data = future.result()
+                    except Exception as exc:
+                        st.write('%r generated an exception: %s' % (arg, exc))
+                    else:
+                        st.write('%r page is %d bytes' % (arg, len(data)))
 
     def download_link(object_to_download, download_filename, download_link_text):
         if isinstance(object_to_download,pd.DataFrame):

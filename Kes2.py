@@ -10,6 +10,10 @@ from rdkit.Chem import AllChem
 from utils import metric_functions, load_data, calculate_similarity_for_metrics, generate_heatmaps, download_link
 import os
 
+st.set_page_config(
+        page_title="kes2",
+)
+
 # Constants
 SIMILARITY_METRICS = list(metric_functions.keys())
 
@@ -51,34 +55,19 @@ def page_molecular_similarity():
         else:
             st.error('Please upload a file.')
 
-def add_logo():
-    st.markdown(
-        """
-        <style>
-            [data-testid="stSidebarNav"] {
-                background-image: <a href="https://imgur.com/iZ4HlQF"><img src="https://i.imgur.com/iZ4HlQF.png" title="source: imgur.com" /></a>;
-                background-repeat: no-repeat;
-                padding-top: 120px;
-                background-position: 20px 20px;
-            }
-            [data-testid="stSidebarNav"]::before {
-                content: "My Company Name";
-                margin-left: 20px;
-                margin-top: 20px;
-                font-size: 30px;
-                position: relative;
-                top: 100px;
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+logo_url = 'https://i.imgur.com/iZ4HlQF.png'
+
+with st.sidebar:
+  st.image(logo_url, width=200)
 
 # Add ownership credit to the app
 st.sidebar.markdown("""
 ---
-## Kes2: Molecular Similarity Score Calculator                
-**Created by Alex Kesin. Last updated on 01/13/24. For any questions, reach out to kesin@umich.edu.**
+## Kes2: Molecular Similarity Score Calculator 
+https://github.com/quadrin/Kes2
+                                
+**Created by Alex Kesin. 
+**Last updated on 01/13/24. For any questions, reach out to kesin@umich.edu.**
 """)
 
 # Add a new page for the demo/tutorial
